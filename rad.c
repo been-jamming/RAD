@@ -75,6 +75,7 @@ void rad_free(rad_func *func){
 	switch(func->operation){
 		case CONSTANT:
 		case INPUT:
+		case ARG:
 			free(func);
 			return;
 		case ADD:
@@ -92,6 +93,7 @@ void rad_discard(rad_func *func){
 	switch(func->operation){
 		case CONSTANT:
 		case INPUT:
+		case ARG:
 			func->num_references--;
 			if(func->num_references == 0){
 				rad_free(func);
@@ -146,6 +148,8 @@ double rad_eval(rad_func *func, double *inputs){
 		case DIVIDE:
 			func->value = input0/input1;
 			break;
+		default:
+			break;
 	}
 
 	return func->value;
@@ -189,6 +193,8 @@ void rad_forward_diff(rad_func *func, double *inputs, unsigned int input_id, dou
 			func->value = func->operand0->value/func->operand1->value;
 			func->deriv = (func->operand0->deriv*func->operand1->value - func->operand1->deriv*func->operand0->value)/(func->operand1->value*func->operand1->value);
 			break;
+		default:
+			return;
 	}
 
 	if(value){
@@ -245,6 +251,8 @@ static void rad_backward_diff_recursive(rad_func *func){
 			func->operand0->deriv += func->deriv/func->operand1->value;
 			func->operand1->deriv -= func->deriv*func->operand0->value/(func->operand1->value*func->operand1->value);
 			break;
+		default:
+			break;
 	}
 
 	rad_backward_diff_recursive(func->operand0);
@@ -282,7 +290,7 @@ void rad_backward_diff(rad_func *func, double *derivatives){
 	rad_sum_input_deriv(func, derivatives);
 }
 
-int main(int argc, char **argv){
+int main2(int argc, char **argv){
 	rad_func *x = rad_input(0);
 	rad_func *y = rad_input(1);
 
