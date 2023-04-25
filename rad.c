@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include "rad.h"
 
 rad_func *rad_create_func(enum rad_oper operation, unsigned int num_references){
@@ -66,12 +67,35 @@ rad_func *rad_divide(rad_func *operand0, rad_func *operand1){
 	return output;
 }
 
+rad_func *rad_composition(rad_func *func, unsigned int num_args, ...){
+	va_list args;
+	rad_func *output;
+	unsigned int i;
+
+	output = rad_create_func(COMPOSITION, 1);
+	output->func = func;
+	output->num_inputs = num_args;
+	output->inputs = malloc(sizeof(rad_func *)*num_args);
+	va_start(args, num_args);
+	for(i = 0; i < num_args; i++){
+		output->inputs[i] = va_arg(args, rad_func *);
+	}
+	va_end(args);
+
+	output->input_values = malloc(sizeof(double)*num_args);
+	output->input_derivatives = malloc(sizeof(double)*num_args);
+
+	return output;
+}
+
 rad_func *rad_copy(rad_func *func){
 	func->num_references++;
 	return func;
 }
 
 void rad_free(rad_func *func){
+	unsigned int i;
+
 	switch(func->operation){
 		case CONSTANT:
 		case INPUT:
@@ -86,27 +110,51 @@ void rad_free(rad_func *func){
 			rad_free(func->operand1);
 			free(func);
 			return;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				rad_free(func->inputs[i]);
+			}
+			free(func->inputs);
+			free(func->input_values);
+			free(func->input_derivatives);
+			free(func);
+			return;
 	}
 }
 
 void rad_discard(rad_func *func){
+	unsigned int i;
+
 	switch(func->operation){
 		case CONSTANT:
 		case INPUT:
 		case ARG:
 			func->num_references--;
 			if(func->num_references == 0){
-				rad_free(func);
+				free(func);
 			}
 			return;
 		case ADD:
 		case SUBTRACT:
 		case MULTIPLY:
 		case DIVIDE:
-			rad_discard(func->operand0);
-			rad_discard(func->operand1);
 			func->num_references--;
 			if(func->num_references == 0){
+				rad_discard(func->operand0);
+				rad_discard(func->operand1);
+				free(func);
+			}
+			return;
+		case COMPOSITION:
+			func->num_references--;
+			if(func->num_references == 0){
+				rad_discard(func->func);
+				for(i = 0; i < func->num_inputs; i++){
+					rad_discard(func->inputs[i]);
+				}
+				free(func->inputs);
+				free(func->input_values);
+				free(func->input_derivatives);
 				free(func);
 			}
 			return;
@@ -116,6 +164,8 @@ void rad_discard(rad_func *func){
 double rad_eval(rad_func *func, double *inputs){
 	double input0;
 	double input1;
+	double output;
+	int i;
 
 	switch(func->operation){
 		case ADD:
@@ -124,6 +174,65 @@ double rad_eval(rad_func *func, double *inputs){
 		case DIVIDE:
 			input0 = rad_eval(func->operand0, inputs);
 			input1 = rad_eval(func->operand1, inputs);
+			break;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				func->input_values[i] = rad_eval(func->inputs[i], inputs);
+			}
+			break;
+		default:
+			break;
+	}
+
+	switch(func->operation){
+		case CONSTANT:
+			output = func->const_value;
+			break;
+		case INPUT:
+			output = inputs[func->input_id];
+			break;
+		case ADD:
+			output = input0 + input1;
+			break;
+		case SUBTRACT:
+			output = input0 - input1;
+			break;
+		case MULTIPLY:
+			output = input0*input1;
+			break;
+		case DIVIDE:
+			output = input0/input1;
+			break;
+		case COMPOSITION:
+			output = rad_eval(func->func, func->input_values);
+			break;
+		default:
+			break;
+	}
+
+	func->value = output;
+
+	return output;
+}
+
+static double rad_backward_diff_eval(rad_func *func, double *inputs){
+	double input0;
+	double input1;
+	int i;
+
+	switch(func->operation){
+		case ADD:
+		case SUBTRACT:
+		case MULTIPLY:
+		case DIVIDE:
+			input0 = rad_backward_diff_eval(func->operand0, inputs);
+			input1 = rad_backward_diff_eval(func->operand1, inputs);
+			break;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				func->input_values[i] = rad_backward_diff_eval(func->inputs[i], inputs);
+				func->input_derivatives[i] = 0;
+			}
 			break;
 		default:
 			break;
@@ -148,6 +257,9 @@ double rad_eval(rad_func *func, double *inputs){
 		case DIVIDE:
 			func->value = input0/input1;
 			break;
+		case COMPOSITION:
+			func->value = rad_backward_diff(func->func, func->input_values, func->input_derivatives);
+			break;
 		default:
 			break;
 	}
@@ -155,14 +267,27 @@ double rad_eval(rad_func *func, double *inputs){
 	return func->value;
 }
 
-void rad_forward_diff(rad_func *func, double *inputs, unsigned int input_id, double *value, double *deriv){
+double rad_forward_grad(rad_func *func, double *inputs, double *derivatives, double *value){
+	unsigned int i;
+	double value0;
+	double deriv0;
+	double value1;
+	double deriv1;
+	double out_value = 0;
+	double out_deriv = 0;
+
 	switch(func->operation){
 		case ADD:
 		case SUBTRACT:
 		case MULTIPLY:
 		case DIVIDE:
-			rad_forward_diff(func->operand0, inputs, input_id, NULL, NULL);
-			rad_forward_diff(func->operand1, inputs, input_id, NULL, NULL);
+			deriv0 = rad_forward_grad(func->operand0, inputs, derivatives, &value0);
+			deriv1 = rad_forward_grad(func->operand1, inputs, derivatives, &value1);
+			break;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				func->input_derivatives[i] = rad_forward_grad(func->inputs[i], inputs, derivatives, func->input_values + i);
+			}
 			break;
 		default:
 			break;
@@ -170,143 +295,154 @@ void rad_forward_diff(rad_func *func, double *inputs, unsigned int input_id, dou
 
 	switch(func->operation){
 		case CONSTANT:
-			func->value = func->const_value;
-			func->deriv = 0;
+			out_value = func->const_value;
+			out_deriv = 0;
 			break;
 		case INPUT:
-			func->value = inputs[func->input_id];
-			func->deriv = (input_id == func->input_id);
+			out_value = inputs[func->input_id];
+			out_deriv = derivatives[func->input_id];
 			break;
 		case ADD:
-			func->value = func->operand0->value + func->operand1->value;
-			func->deriv = func->operand0->deriv + func->operand1->deriv;
+			out_value = value0 + value1;
+			out_deriv = deriv0 + deriv1;
 			break;
 		case SUBTRACT:
-			func->value = func->operand0->value - func->operand1->value;
-			func->deriv = func->operand0->deriv - func->operand1->deriv;
+			out_value = value0 - value1;
+			out_deriv = deriv0 - deriv1;
 			break;
 		case MULTIPLY:
-			func->value = func->operand0->value*func->operand1->value;
-			func->deriv = func->operand0->value*func->operand1->deriv + func->operand1->value*func->operand0->deriv;
+			out_value = value0*value1;
+			out_deriv = value0*deriv1 + value1*deriv0;
 			break;
 		case DIVIDE:
-			func->value = func->operand0->value/func->operand1->value;
-			func->deriv = (func->operand0->deriv*func->operand1->value - func->operand1->deriv*func->operand0->value)/(func->operand1->value*func->operand1->value);
+			out_value = value0/value1;
+			out_deriv = (deriv0*value1 - deriv1*value0)/(value1*value1);
+			break;
+		case COMPOSITION:
+			out_deriv = rad_forward_grad(func->func, func->input_values, func->input_derivatives, &out_value);
 			break;
 		default:
-			return;
+			break;
 	}
 
-	if(value){
-		*value = func->value;
+	func->value = out_value;
+	func->deriv = out_deriv;
+
+	if(value != NULL){
+		*value = out_value;
 	}
 
-	if(deriv){
-		*deriv = func->deriv;
-	}
+	return out_deriv;
 }
 
-static void rad_reset_deriv(rad_func *func){
-	func->deriv = 0;
-	func->traversed = false;
-	func->sum_traversed = false;
+double rad_forward_diff(rad_func *func, double *inputs, unsigned int input_id, double *value){
+	unsigned int i;
+	double value0;
+	double deriv0;
+	double value1;
+	double deriv1;
+	double out_value = 0;
+	double out_deriv = 0;
 
 	switch(func->operation){
 		case ADD:
 		case SUBTRACT:
 		case MULTIPLY:
 		case DIVIDE:
-			rad_reset_deriv(func->operand0);
-			rad_reset_deriv(func->operand1);
-			return;
+			deriv0 = rad_forward_diff(func->operand0, inputs, input_id, &value0);
+			deriv1 = rad_forward_diff(func->operand1, inputs, input_id, &value1);
+			break;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				func->input_derivatives[i] = rad_forward_diff(func->inputs[i], inputs, input_id, func->input_values + i);
+			}
+			break;
 		default:
-			return;
+			break;
 	}
-}
-
-static void rad_backward_diff_recursive(rad_func *func){
-	if(func->traversed){
-		return;
-	}
-
-	func->traversed = true;
 
 	switch(func->operation){
+		case CONSTANT:
+			out_value = func->const_value;
+			out_deriv = 0;
+			break;
 		case INPUT:
+			out_value = inputs[func->input_id];
+			out_deriv = (func->input_id == input_id);
+			break;
+		case ADD:
+			out_value = value0 + value1;
+			out_deriv = deriv0 + deriv1;
+			break;
+		case SUBTRACT:
+			out_value = value0 - value1;
+			out_deriv = deriv0 - deriv1;
+			break;
+		case MULTIPLY:
+			out_value = value0*value1;
+			out_deriv = value0*deriv1 + value1*deriv0;
+			break;
+		case DIVIDE:
+			out_value = value0/value1;
+			out_deriv = (deriv0*value1 - deriv1*value0)/(value1*value1);
+			break;
+		case COMPOSITION:
+			out_deriv = rad_forward_grad(func->func, func->input_values, func->input_derivatives, &out_value);
+			break;
+		default:
+			break;
+	}
+
+	func->value = out_value;
+	func->deriv = out_deriv;
+
+	if(value != NULL){
+		*value = out_value;
+	}
+
+	return out_deriv;
+}
+
+static void rad_backward_diff_recursive(rad_func *func, double deriv, double *derivatives){
+	unsigned int i;
+
+	switch(func->operation){
 		case CONSTANT:
 			return;
-		case ADD:
-			func->operand0->deriv += func->deriv;
-			func->operand1->deriv += func->deriv;
-			break;
-		case SUBTRACT:
-			func->operand0->deriv += func->deriv;
-			func->operand1->deriv -= func->deriv;
-			break;
-		case MULTIPLY:
-			func->operand0->deriv += func->deriv*func->operand1->value;
-			func->operand1->deriv += func->deriv*func->operand0->value;
-			break;
-		case DIVIDE:
-			func->operand0->deriv += func->deriv/func->operand1->value;
-			func->operand1->deriv -= func->deriv*func->operand0->value/(func->operand1->value*func->operand1->value);
-			break;
-		default:
-			break;
-	}
-
-	rad_backward_diff_recursive(func->operand0);
-	rad_backward_diff_recursive(func->operand1);
-}
-
-static void rad_sum_input_deriv(rad_func *func, double *derivatives){
-	if(func->sum_traversed){
-		return;
-	}
-
-	func->sum_traversed = true;
-
-	switch(func->operation){
-		case ADD:
-		case SUBTRACT:
-		case MULTIPLY:
-		case DIVIDE:
-			rad_sum_input_deriv(func->operand0, derivatives);
-			rad_sum_input_deriv(func->operand1, derivatives);
-			return;
 		case INPUT:
-			derivatives[func->input_id] += func->deriv;
+			derivatives[func->input_id] += deriv;
+			return;
+		case ADD:
+			rad_backward_diff_recursive(func->operand0, deriv, derivatives);
+			rad_backward_diff_recursive(func->operand1, deriv, derivatives);
+			return;
+		case SUBTRACT:
+			rad_backward_diff_recursive(func->operand0, deriv, derivatives);
+			rad_backward_diff_recursive(func->operand1, -deriv, derivatives);
+			return;
+		case MULTIPLY:
+			rad_backward_diff_recursive(func->operand0, deriv*func->operand1->value, derivatives);
+			rad_backward_diff_recursive(func->operand1, deriv*func->operand0->value, derivatives);
+			return;
+		case DIVIDE:
+			rad_backward_diff_recursive(func->operand0, deriv/func->operand1->value, derivatives);
+			rad_backward_diff_recursive(func->operand1, -deriv*func->operand0->value/(func->operand1->value*func->operand1->value), derivatives);
+			return;
+		case COMPOSITION:
+			for(i = 0; i < func->num_inputs; i++){
+				rad_backward_diff_recursive(func->inputs[i], func->input_derivatives[i], derivatives);
+			}
 			return;
 		default:
 			return;
 	}
 }
 
-void rad_backward_diff(rad_func *func, double *derivatives){
-	rad_reset_deriv(func);
+double rad_backward_diff(rad_func *func, double *inputs, double *derivatives){
+	double output;
 
-	func->deriv = 1;
-	rad_backward_diff_recursive(func);
-	rad_sum_input_deriv(func, derivatives);
-}
-
-int main2(int argc, char **argv){
-	rad_func *x = rad_input(0);
-	rad_func *y = rad_input(1);
-
-	rad_func *f = rad_divide(rad_copy(x), rad_add(rad_multiply(rad_copy(x), x), rad_multiply(rad_copy(y), y)));
-
-	double value;
-	double deriv[2] = {0, 0};
-	double inputs[2] = {3, 4};
-
-	//rad_forward_diff(f, inputs, 0, &value, deriv);
-	value = rad_eval(f, inputs);
-	rad_backward_diff(f, deriv);
-
-	printf("value: %lf\nderivative: %lf\n", value, deriv[0]);
-	rad_discard(f);
-
-	return 0;
+	output = rad_backward_diff_eval(func, inputs);
+	rad_backward_diff_recursive(func, 1, derivatives);
+	return output;
 }
 

@@ -250,20 +250,23 @@ void rad_print(rad_func *func){
 
 int main(int argc, char **argv){
 	rad_func *f;
-	double inputs[] = {-1, 3};
+	rad_func *g;
+	rad_func *h;
+	double inputs[] = {2, 3};
 	double derivatives[] = {0, 0};
+	double deriv;
 	double value;
-	double derivative0;
-	double derivative1;
 
-	f = rad_parse("[0]*[0] + [0]/[1] + [1]/[0]");
-	rad_forward_diff(f, inputs, 0, &value, &derivative0);
-	rad_forward_diff(f, inputs, 1, &value, &derivative1);
-	value = rad_eval(f, inputs);
-	rad_backward_diff(f, derivatives);
-	rad_print(f);
-	printf("\nvalue: %lf\nderivative 0: %lf\nderivative 1: %lf\nderivatives: %lf, %lf\n", value, derivative0, derivative1, derivatives[0], derivatives[1]);
-	rad_discard(f);
+	g = rad_parse("[0]*[0] + [0]*[1]");
+	f = rad_parse("{0}/({0} + 1)", rad_input(0));
+
+	h = rad_composition(f, 1, rad_copy(g));
+	h = rad_add(h, g);
+
+	value = rad_backward_diff(h, inputs, derivatives);
+
+	printf("\nvalue: %lf\nderiv x: %lf\nderiv y: %lf\n", value, derivatives[0], derivatives[1]);
+	rad_discard(h);
 
 	return 0;
 }
