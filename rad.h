@@ -8,7 +8,8 @@ enum rad_oper{
 	MULTIPLY,
 	DIVIDE,
 	ARG,
-	COMPOSITION
+	COMPOSITION,
+	CUSTOM
 };
 
 typedef struct rad_func rad_func;
@@ -25,17 +26,22 @@ struct rad_func{
 		unsigned int arg_id;
 		struct{
 			unsigned int num_inputs;
-			rad_func *func;
 			rad_func **inputs;
 			double *input_values;
 			double *input_derivatives;
+			union{
+				rad_func *func;
+				struct{
+					double (*custom_eval)(double *, double *);
+					double *input_grad;
+				};
+			};
 		};
 	};
 	unsigned int num_references;
 	double value;
 	double deriv;
-	bool traversed;
-	bool sum_traversed;
+	unsigned int invocation_id;
 };
 
 rad_func *rad_create_func(enum rad_oper operation, unsigned int num_references);
@@ -46,8 +52,9 @@ rad_func *rad_subtract(rad_func *operand0, rad_func *operand1);
 rad_func *rad_multiply(rad_func *operand0, rad_func *operand1);
 rad_func *rad_divide(rad_func *operand0, rad_func *operand1);
 rad_func *rad_composition(rad_func *func, unsigned int num_args, ...);
-rad_func *rad_copy(rad_func *func);
-void rad_free(rad_func *func);
+rad_func *rad_custom(double (*custom_eval)(double *, double *), unsigned int num_args, ...);
+rad_func *rad_copy(/*not consumed*/rad_func *func);
+rad_func *rad_deep_copy(/*not consumed*/rad_func *func);
 void rad_discard(rad_func *func);
 double rad_eval(rad_func *func, double *inputs);
 double rad_forward_grad(rad_func *func, double *inputs, double *derivatives, double *value);

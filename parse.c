@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <math.h>
 #include "rad.h"
 
 static int rad_order_of_operations[] = {-1, -1, 0, 0, 1, 1};
@@ -248,25 +249,25 @@ void rad_print(rad_func *func){
 	}
 }
 
-int main(int argc, char **argv){
-	rad_func *f;
-	rad_func *g;
-	rad_func *h;
-	double inputs[] = {2, 3};
-	double derivatives[] = {0, 0};
-	double deriv;
-	double value;
+double custom_exp2(double *input, double *grad){
+	*grad = exp(*input);
+	return *grad;
+}
 
-	g = rad_parse("[0]*[0] + [0]*[1]");
-	f = rad_parse("{0}/({0} + 1)", rad_input(0));
+int main2(int argc, char **argv){
+	rad_func *activation;
+	double input = 1;
+	double deriv = 0;
+	double output;
 
-	h = rad_composition(f, 1, rad_copy(g));
-	h = rad_add(h, g);
+	activation = rad_parse("1/(1 + {0})", rad_custom(custom_exp2, 1, rad_parse("0.0 - [0]")));
 
-	value = rad_backward_diff(h, inputs, derivatives);
+	//deriv = rad_forward_diff(activation, &input, 0, &output);
+	output = rad_backward_diff(activation, &input, &deriv);
 
-	printf("\nvalue: %lf\nderiv x: %lf\nderiv y: %lf\n", value, derivatives[0], derivatives[1]);
-	rad_discard(h);
+	printf("value: %lf\nderiv: %lf\n", output, deriv);
+
+	rad_discard(activation);
 
 	return 0;
 }
