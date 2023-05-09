@@ -6,15 +6,12 @@
 #include <limits.h>
 #include "rad.h"
 
-static unsigned int global_invocation = 0;
-
 rad_func *rad_create_func(enum rad_oper operation, unsigned int num_references){
 	rad_func *output;
 
 	output = malloc(sizeof(rad_func));
 	output->operation = operation;
 	output->num_references = num_references;
-	output->invocation_id = global_invocation - 1;
 
 	return output;
 }
@@ -265,26 +262,24 @@ double rad_eval(rad_func *func, double *inputs){
 	return output;
 }
 
-static double rad_backward_diff_eval(rad_func *func, double *inputs, unsigned int invocation_id){
+static double rad_backward_diff_eval(rad_func *func, double *inputs){
 	double input0;
 	double input1;
 	rad_func *new_func;
 	int i;
-
-	func->invocation_id = invocation_id;
 
 	switch(func->operation){
 		case ADD:
 		case SUBTRACT:
 		case MULTIPLY:
 		case DIVIDE:
-			input0 = rad_backward_diff_eval(func->operand0, inputs, invocation_id);
-			input1 = rad_backward_diff_eval(func->operand1, inputs, invocation_id);
+			input0 = rad_backward_diff_eval(func->operand0, inputs);
+			input1 = rad_backward_diff_eval(func->operand1, inputs);
 			break;
 		case COMPOSITION:
 		case CUSTOM:
 			for(i = 0; i < func->num_inputs; i++){
-				func->input_values[i] = rad_backward_diff_eval(func->inputs[i], inputs, invocation_id);
+				func->input_values[i] = rad_backward_diff_eval(func->inputs[i], inputs);
 				func->input_derivatives[i] = 0;
 			}
 			break;
@@ -521,8 +516,7 @@ static void rad_backward_diff_recursive(rad_func *func, double deriv, double *de
 double rad_backward_diff(rad_func *func, double *inputs, double *derivatives){
 	double output;
 
-	output = rad_backward_diff_eval(func, inputs, global_invocation);
-	global_invocation++;
+	output = rad_backward_diff_eval(func, inputs);
 	rad_backward_diff_recursive(func, 1, derivatives);
 	return output;
 }

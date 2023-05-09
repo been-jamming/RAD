@@ -66,7 +66,7 @@ double rad_teach(rad_func *error_func, double *parameters, double *derivs, doubl
 	unsigned int i;
 
 	for(i = parameter_start; i < num_parameters; i++){
-		derivs[i] = 0;
+		derivs[i] *= 0.75;
 	}
 	error = rad_backward_diff(error_func, parameters, derivs);
 	for(i = parameter_start; i < num_parameters; i++){
@@ -107,7 +107,7 @@ int main(int argc, char **argv){
 
 	for(i = 0; i < parameter; i++){
 		parameters[i] = ((double) rand())/UINT_MAX;
-		derivatives[i] = ((double) rand())/UINT_MAX;
+		derivatives[i] = 0.0;
 	}
 
 	for(i = 0; i < 100000; i++){
@@ -123,6 +123,12 @@ int main(int argc, char **argv){
 		error = rad_teach(error_func, parameters, derivatives, 0.05, parameter, 3);
 		printf("%u %u %d %lf - error: %lf\n", in0, in1, in0 != in1, layer2[0]->value, error);
 	}
+
+	printf("parameters: ");
+	for(i = 3; i < parameter; i++){
+		printf("%lf ", parameters[i]);
+	}
+	printf("\n");
 
 	free(parameters);
 	free(derivatives);
