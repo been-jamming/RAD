@@ -254,21 +254,3 @@ double custom_exp2(double *input, double *grad){
 	return *grad;
 }
 
-int main2(int argc, char **argv){
-	rad_func *activation;
-	double input = 1;
-	double deriv = 0;
-	double output;
-
-	activation = rad_parse("1/(1 + {0})", rad_custom(custom_exp2, 1, rad_parse("0.0 - [0]")));
-
-	//deriv = rad_forward_diff(activation, &input, 0, &output);
-	output = rad_backward_diff(activation, &input, &deriv);
-
-	printf("value: %lf\nderiv: %lf\n", output, deriv);
-
-	rad_discard(activation);
-
-	return 0;
-}
-

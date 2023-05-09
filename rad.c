@@ -265,7 +265,7 @@ double rad_eval(rad_func *func, double *inputs){
 static double rad_backward_diff_eval(rad_func *func, double *inputs){
 	double input0;
 	double input1;
-	rad_func *new_func;
+	//rad_func *new_func;
 	int i;
 
 	switch(func->operation){
