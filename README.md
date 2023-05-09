@@ -1,4 +1,4 @@
-# RAD - Rad Automatic Differentiator
+# RAD - Rad Auto-Differentiator
 A C library for automatic foward and backward differentiation.
 
 ## How to Use
